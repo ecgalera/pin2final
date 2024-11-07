@@ -1,18 +1,106 @@
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
+# Configuración de la VPC
+resource "aws_vpc" "my_vpc" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "MyVPC"
   }
 }
 
+# Gateway de Internet
+resource "aws_internet_gateway" "my_igw" {
+  vpc_id = aws_vpc.my_vpc.id
+
+  tags = {
+    Name = "MyInternetGateway"
+  }
+}
+
+# Subnet pública
+resource "aws_subnet" "my_subnet" {
+  vpc_id                  = aws_vpc.my_vpc.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "us-east-1a"
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "MySubnet"
+  }
+}
+
+# Tabla de rutas pública
+resource "aws_route_table" "public_route_table" {
+  vpc_id = aws_vpc.my_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.my_igw.id
+  }
+
+  tags = {
+    Name = "MyPublicRouteTable"
+  }
+}
+
+# Asociación de la tabla de rutas a la subnet
+resource "aws_route_table_association" "public_rt_assoc" {
+  subnet_id      = aws_subnet.my_subnet.id
+  route_table_id = aws_route_table.public_route_table.id
+}
+
+# Grupo de seguridad para la instancia EC2
+resource "aws_security_group" "my_sg" {
+  vpc_id = aws_vpc.my_vpc.id
+
+  # Puertos abiertos para los servicios
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 9113
+    to_port     = 9113
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Acceso SSH
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "MySecurityGroup"
+  }
+}
+
+# Instancia EC2 con Docker y Docker Compose
 resource "aws_instance" "my_instance" {
   ami           = data.aws_ami.amazon_linux.id
   instance_type = "t2.micro"
@@ -21,6 +109,7 @@ resource "aws_instance" "my_instance" {
   vpc_security_group_ids = [aws_security_group.my_sg.id]
   subnet_id              = aws_subnet.my_subnet.id
 
+  # Script de configuración de usuario para instalar Docker y correr Docker Compose
   user_data = <<-EOF
               #!/bin/bash
               yum update -y
@@ -62,7 +151,6 @@ resource "aws_instance" "my_instance" {
                     allow 127.0.0.1;
                     deny all;
                 }
-                ...
               }
               EOF3
               cat <<EOF4 > /home/ec2-user/prometheus.yml
@@ -81,6 +169,7 @@ resource "aws_instance" "my_instance" {
   }
 }
 
+# Salida con la IP pública de la instancia
 output "instance_ip" {
   value = aws_instance.my_instance.public_ip
 }
