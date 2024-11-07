@@ -1,86 +1,31 @@
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
+name: Terraform Deployment
 
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
+on:
+  workflow_dispatch: # Esto permite ejecutar el workflow manualmente desde la UI de GitHub
 
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-resource "aws_instance" "my_instance" {
-  ami           = data.aws_ami.amazon_linux.id
-  instance_type = "t2.micro"
-  key_name      = var.key_name
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
 
-  vpc_security_group_ids = [aws_security_group.my_sg.id]
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v1
+      with:
+        terraform_version: 1.0.0
 
-  user_data = <<-EOF
-              #!/bin/bash
-              yum update -y
-              amazon-linux-extras install docker -y
-              service docker start
-              usermod -aG docker ec2-user
-              curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-              chmod +x /usr/local/bin/docker-compose
-              cat <<EOF2 > /home/ec2-user/docker-compose.yml
-              version: '3'
-              services:
-                nginx:
-                  image: nginx:latest
-                  ports:
-                    - "80:80"
-                  volumes:
-                    - ./nginx.conf:/etc/nginx/nginx.conf
-                grafana:
-                  image: grafana/grafana:latest
-                  ports:
-                    - "3000:3000"
-                prometheus:
-                  image: prom/prometheus:latest
-                  ports:
-                    - "9090:9090"
-                  volumes:
-                    - ./prometheus.yml:/etc/prometheus/prometheus.yml
-                nginx-exporter:
-                  image: nginx/nginx-prometheus-exporter:latest
-                  ports:
-                    - "9113:9113"
-                  command: ["-nginx.scrape-uri=http://localhost/stub_status"]
-              EOF2
-              cat <<EOF3 > /home/ec2-user/nginx.conf
-              server {
-                location /stub_status {
-                    stub_status on;
-                    access_log off;
-                    allow 127.0.0.1;
-                    deny all;
-                }
-                ...
-              }
-              EOF3
-              cat <<EOF4 > /home/ec2-user/prometheus.yml
-              global:
-                scrape_interval: 15s
-              scrape_configs:
-                - job_name: 'nginx'
-                  static_configs:
-                    - targets: ['nginx-exporter:9113']
-              EOF4
-              docker-compose -f /home/ec2-user/docker-compose.yml up -d
-              EOF
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
 
-  tags = {
-    Name = "MyEC2Instance"
-  }
-}
+    - name: Terraform Init
+      run: terraform init
 
-output "instance_ip" {
-  value = aws_instance.my_instance.public_ip
-}
+    - name: Terraform Apply
+      run: terraform apply -auto-approve -var key_name=${{ secrets.KEY_NAME }}
 
