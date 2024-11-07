@@ -1,9 +1,7 @@
 name: Terraform Deployment
 
-on:
-  push:
-    branches:
-      - main
+on: 
+  workflow_dispatch: # Esto permite ejecutar el workflow manualmente desde la UI de GitHub
 
 jobs:
   deploy:
